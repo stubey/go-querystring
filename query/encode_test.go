@@ -160,6 +160,7 @@ func TestValues_types(t *testing.T) {
 	}
 
 	for i, tt := range tests {
+		logit("\n\nTestcase", tt)
 		v, err := Values(tt.in)
 		if err != nil {
 			t.Errorf("%d. Values(%q) returned error: %v", i, tt.in, err)
@@ -182,6 +183,7 @@ func TestValues_omitEmpty(t *testing.T) {
 		E *string `url:",omitempty"`
 	}{E: &str}
 
+	logit("\n\nTestcase", s)
 	v, err := Values(s)
 	if err != nil {
 		t.Errorf("Values(%q) returned error: %v", s, err)
@@ -239,6 +241,7 @@ func TestValues_embeddedStructs(t *testing.T) {
 	}
 
 	for i, tt := range tests {
+		logit("\n\nTestcase", tt)
 		v, err := Values(tt.in)
 		if err != nil {
 			t.Errorf("%d. Values(%q) returned error: %v", i, tt.in, err)
@@ -314,6 +317,7 @@ func TestTagParsing(t *testing.T) {
 		{"bar", false},
 		{"field", false},
 	} {
+		logit("\n\nTestcase", tt)
 		if opts.Contains(tt.opt) != tt.want {
 			t.Errorf("Contains(%q) = %v", tt.opt, !tt.want)
 		}

@@ -23,8 +23,11 @@ package query
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"net/url"
+	"path"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -110,67 +113,133 @@ type Encoder interface {
 //
 // Multiple fields that encode to the same URL parameter name will be included
 // as multiple URL values of the same name.
+
+// v is generally a struct or pointer-to-struct
+// Return empty values if nil-pointer or a nil value
+// Return error if v is neither struct nor ptr-to-struct
 func Values(v interface{}) (url.Values, error) {
+	logit("\n\nv", v)
+
+	// url.Values is a map[string] []string
 	values := make(url.Values)
+
+	// Set val to the interfaces Value
 	val := reflect.ValueOf(v)
+	logit("val", val)
+
+	// Update val to remove 'Pointieness' (dereference the pointer)
 	for val.Kind() == reflect.Ptr {
+		// Return if nil pointer
 		if val.IsNil() {
+			logit("val is a nil pointer = ", true)
 			return values, nil
 		}
+		// Dereference the pointer
 		val = val.Elem()
 	}
 
+	// Return if nil value
 	if v == nil {
+		logit("val is a nil value = ", true)
 		return values, nil
 	}
 
+	logit("val", val)
+	// Return if non-struct value
 	if val.Kind() != reflect.Struct {
+		logit("val is not a struct = ", true)
 		return nil, fmt.Errorf("query: Values() expects struct input. Got %v", val.Kind())
 	}
 
+	// Populate values with tag name and values
+	// maps (values) are modifiable by the called function
 	err := reflectValue(values, val, "")
+	logit("values", values)
+	logit("--------", "--------")
 	return values, err
 }
 
 // reflectValue populates the values parameter from the struct fields in val.
 // Embedded structs are followed recursively (using the rules defined in the
 // Values function documentation) breadth-first.
+// Caller should have filtered out non-structs
 func reflectValue(values url.Values, val reflect.Value, scope string) error {
+	logit("\n\nval", val)
+	logit("\n\nscope", scope)
+
 	var embedded []reflect.Value
 
 	typ := val.Type()
+	logit("typ", typ)
+
 	for i := 0; i < typ.NumField(); i++ {
+		logit("\n\n**** Field #", i)
+
 		sf := typ.Field(i)
+		logit("sf", sf)
+		logit("sf.PkgPath", sf.PkgPath)
+		logit("sf.Anonymous", sf.Anonymous)
+
+		// Ignore field if field is unexported
+		// sf.PkgPath != "" if lowercase field name
+		// sf.Anonymous == embedded field
 		if sf.PkgPath != "" && !sf.Anonymous { // unexported
+			logit("unexported - continue", true)
 			continue
 		}
 
 		sv := val.Field(i)
+		logit("sv", sv)
+
 		tag := sf.Tag.Get("url")
+		logit("url tag", tag)
+
+		// Ignore field if tag name == "-"
 		if tag == "-" {
+			logit("tag is unexported due to - - continue", true)
 			continue
 		}
 		name, opts := parseTag(tag)
+		logit("name", name)
+		logit("opts", opts)
+
+		// If no name specified, use the Field name
 		if name == "" {
+			logit("name == ''", true)
+
+			logit("sv.Kind()", sv.Kind())
+
+			// Defer embedded struct processing (save and continue)
 			if sf.Anonymous && sv.Kind() == reflect.Struct {
 				// save embedded struct for later processing
+				logit("Embedded (Anonymous) struct - save sv for later and continue", true)
 				embedded = append(embedded, sv)
 				continue
 			}
 
 			name = sf.Name
+			logit("Set name to field name", name)
 		}
 
 		if scope != "" {
 			name = scope + "[" + name + "]"
+			logit("updated, scoped name", name)
 		}
 
 		if opts.Contains("omitempty") && isEmptyValue(sv) {
+			logit("omitempty option - continue", true)
 			continue
 		}
 
+		// Detect if sv.Type() implements Encoder
 		if sv.Type().Implements(encoderType) {
+			logit("custom encoder", true)
+			//  Detect if nil Encoder interface ptr
 			if !reflect.Indirect(sv).IsValid() {
+				// Instantiate a zero value Encoder if ptr is nil
+				logit("sv NotValid", true)
+				logit("sv.Type().Kind()", sv.Type().Kind())
+				logit("sv.Type().Elem()", sv.Type().Elem())
 				sv = reflect.New(sv.Type().Elem())
 			}
 
@@ -178,6 +247,7 @@ func reflectValue(values url.Values, val reflect.Value, scope string) error {
 			if err := m.EncodeValues(name, &values); err != nil {
 				return err
 			}
+			logit("use custom encoder - continue", true)
 			continue
 		}
 
@@ -317,4 +387,13 @@ func (o tagOptions) Contains(option string) bool {
 		}
 	}
 	return false
+}
+
+func logit(m string, val interface{}) {
+	//pc, fn, line, _ := runtime.Caller(1)
+	//log.Printf("%s[%s:%d] %v (type %T_ = %+v", runtime.FuncForPC(pc).Name(), fn, line, m, val, val)
+	log.SetFlags(0)
+	_, fn, line, _ := runtime.Caller(1)
+	fn = path.Base(fn)
+	log.Printf("%v - L%d %v (type %T) = %+v", fn, line, m, val, val)
 }
